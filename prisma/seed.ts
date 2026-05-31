@@ -16,6 +16,7 @@ async function main() {
   for (const source of [
     { name: "QR on can - Batch A", code: "CAN-A-001" },
     { name: "General social QR", code: "SOCIAL-001" },
+    { name: "Organic (LINE OA Search/Landing Page)", code: "ORGANIC" },
   ]) {
     await prisma.qrSource.upsert({
       where: { code: source.code },
