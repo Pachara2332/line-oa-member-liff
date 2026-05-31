@@ -1,0 +1,192 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ClaimStatus {
+  CLAIMED
+  USED
+  EXPIRED
+  CANCELLED
+}
+
+model Brand {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  sources   QrSource[]
+  members   Member[]
+  coupons   Coupon[]
+  admins    AdminUser[]
+  tags      Tag[]
+  apiKeys   IntegrationApiKey[]
+  followEvents LineFollowEvent[]
+}
+
+model QrSource {
+  id        String   @id @default(cuid())
+  brandId   String
+  name      String
+  code      String   @unique
+  qrUrl     String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  scans     QrScan[]
+  members   Member[]
+  tag       Tag?
+
+  @@index([brandId])
+}
+
+model QrScan {
+  id        String   @id @default(cuid())
+  sourceId  String
+  memberId  String?
+  scannedAt DateTime @default(now())
+  source    QrSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  member    Member?  @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([memberId])
+}
+
+model Member {
+  id          String        @id @default(cuid())
+  brandId     String
+  sourceId    String
+  lineUserId  String
+  displayName String?
+  phone       String?
+  email       String?
+  birthDate   DateTime?
+  consentAt   DateTime
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  brand       Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  source      QrSource      @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  scans       QrScan[]
+  claims      CouponClaim[]
+  tags        MemberTag[]
+  followEvents LineFollowEvent[]
+
+  @@unique([brandId, lineUserId])
+  @@index([brandId])
+  @@index([sourceId])
+}
+
+model Tag {
+  id        String      @id @default(cuid())
+  brandId   String
+  sourceId  String?     @unique
+  code      String
+  name      String
+  lineAudienceGroupId Int?
+  lineAudienceSyncedAt DateTime?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  brand     Brand       @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  source    QrSource?   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  members   MemberTag[]
+
+  @@unique([brandId, code])
+  @@index([brandId])
+}
+
+model MemberTag {
+  id         String   @id @default(cuid())
+  memberId   String
+  tagId      String
+  assignedAt DateTime @default(now())
+  reason     String
+  member     Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, tagId])
+  @@index([tagId])
+}
+
+model AdminUser {
+  id         String    @id
+  email      String?   @unique
+  name       String
+  role       AdminRole
+  brandId    String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime
+  lineUserId String?   @unique
+  username   String?   @unique
+  passwordHash String?
+  brand      Brand?    @relation(fields: [brandId], references: [id])
+
+  @@index([brandId])
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  BRAND_ADMIN
+}
+
+model Coupon {
+  id          String        @id @default(cuid())
+  brandId     String
+  title       String
+  description String?
+  quota       Int?
+  active      Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  brand       Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  claims      CouponClaim[]
+
+  @@unique([brandId, title])
+  @@index([brandId])
+}
+
+model CouponClaim {
+  id        String      @id @default(cuid())
+  couponId  String
+  memberId  String
+  claimedAt DateTime    @default(now())
+  usedAt    DateTime?
+  status    ClaimStatus @default(CLAIMED)
+  coupon    Coupon      @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  member    Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, memberId])
+  @@index([memberId])
+}
+
+model LineFollowEvent {
+  id             String   @id @default(cuid())
+  webhookEventId String?  @unique
+  lineUserId     String
+  memberId       String?
+  brandId        String?
+  followedAt     DateTime
+  createdAt      DateTime @default(now())
+  member         Member?  @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  brand          Brand?   @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
+  @@index([lineUserId])
+  @@index([brandId])
+}
+
+model IntegrationApiKey {
+  id        String   @id @default(cuid())
+  brandId   String
+  name      String
+  keyHash   String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@index([brandId])
+}
