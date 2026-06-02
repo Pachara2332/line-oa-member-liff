@@ -14,6 +14,19 @@ type LiffProfile = { name?: string };
 const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
 const allowDemoLiff = process.env.NEXT_PUBLIC_ALLOW_DEMO_LIFF === "true";
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function readJson(response: Response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`API returned ${response.status} ${response.statusText || "an invalid response"}`);
+  }
+}
+
 function getSourceFromLocation() {
   if (typeof window === "undefined") return "";
   const params = new URLSearchParams(window.location.search);
@@ -44,6 +57,7 @@ export function MemberJourney({
   const [liffReady, setLiffReady] = useState(demoMode);
   const [liffProfile, setLiffProfile] = useState<LiffProfile>();
   const [loading, setLoading] = useState(true);
+  const [liffError, setLiffError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [memberName, setMemberName] = useState("");
@@ -61,11 +75,14 @@ export function MemberJourney({
       body: JSON.stringify({ sourceCode: effectiveSource }),
     })
       .then(async (response) => {
-        const body = await response.json();
+        const body = await readJson(response);
         if (!response.ok) throw new Error(body.error);
         setTracking(body);
       })
-      .catch((error: Error) => setMessage(error.message))
+      .catch((error: unknown) => {
+        const detail = getErrorMessage(error);
+        setMessage(`ระบบสมัครสมาชิกติดต่อ API ไม่สำเร็จ (${detail}) กรุณาลองใหม่อีกครั้ง`);
+      })
       .finally(() => setLoading(false));
   }, [effectiveSource]);
 
@@ -84,7 +101,10 @@ export function MemberJourney({
         setEffectiveSource((current) => current || getSourceFromLocation());
         setLiffReady(true);
       })
-      .catch(() => setMessage("ไม่สามารถเข้าสู่ระบบผ่าน LINE ได้ กรุณาเปิดใหม่จาก LINE OA"));
+      .catch((error: unknown) => {
+        const detail = getErrorMessage(error);
+        setLiffError(`ไม่สามารถเข้าสู่ระบบผ่าน LINE ได้ (${detail}) กรุณาเปิดใหม่จาก LINE OA`);
+      });
   }, [demoMode]);
 
   async function register(event: FormEvent<HTMLFormElement>) {
@@ -108,7 +128,7 @@ export function MemberJourney({
         consent: form.get("consent") === "on",
       }),
     });
-    const body = await response.json();
+    const body = await readJson(response);
     setSubmitting(false);
     if (!response.ok) {
       setMessage(body.error);
@@ -127,7 +147,7 @@ export function MemberJourney({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ couponId, memberToken }),
     });
-    const body = await response.json();
+    const body = await readJson(response);
     setClaiming(undefined);
     if (!response.ok) {
       setMessage(body.error);
@@ -137,7 +157,7 @@ export function MemberJourney({
   }
 
   if (!demoMode && !liffId) return <ErrorScreen message="ยังไม่ได้ตั้งค่า LIFF ID" />;
-  if (!liffReady) return message ? <ErrorScreen message={message} /> : <LoadingScreen />;
+  if (!liffReady) return liffError ? <ErrorScreen message={liffError} /> : <LoadingScreen />;
   if (!effectiveSource) return <ErrorScreen message="QR Code นี้ไม่มี source กรุณาสแกน QR Code ใหม่" />;
   if (loading) return message ? <ErrorScreen message={message} /> : <LoadingScreen />;
   if (!tracking) return <ErrorScreen message={message} />;
@@ -229,6 +249,13 @@ function ErrorScreen({ message }: { message: string }) {
       <section className="max-w-sm rounded-3xl bg-white p-7 text-center shadow-sm">
         <h1 className="text-xl font-bold">ไม่สามารถเปิดหน้าสมัครสมาชิกได้</h1>
         <p className="mt-3 text-sm leading-6 text-slate-500">{message}</p>
+        <button
+          className="mt-5 rounded-xl bg-[#0d6b4d] px-5 py-3 text-sm font-bold text-white"
+          onClick={() => window.location.reload()}
+          type="button"
+        >
+          ลองใหม่อีกครั้ง
+        </button>
       </section>
     </main>
   );
