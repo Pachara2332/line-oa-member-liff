@@ -9,7 +9,12 @@ type TrackingContext = {
   source: { code: string; name: string };
   brand: { name: string };
 };
-type LiffProfile = { name?: string };
+type LiffProfile = {
+  name?: string;
+  email?: string;
+  birthdate?: string;
+  phone_number?: string;
+};
 
 const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
 const allowDemoLiff = process.env.NEXT_PUBLIC_ALLOW_DEMO_LIFF === "true";
@@ -57,6 +62,7 @@ export function MemberJourney({
   const [liffReady, setLiffReady] = useState(demoMode);
   const [liffProfile, setLiffProfile] = useState<LiffProfile>();
   const [loading, setLoading] = useState(true);
+  const [memberLookupDone, setMemberLookupDone] = useState(demoMode);
   const [liffError, setLiffError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -107,6 +113,27 @@ export function MemberJourney({
       });
   }, [demoMode]);
 
+  useEffect(() => {
+    if (demoMode || !tracking || !idToken) return;
+
+    fetch("/api/liff/member", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scanToken: tracking.scanToken, idToken }),
+    })
+      .then(async (response) => {
+        const body = await readJson(response);
+        if (!response.ok) throw new Error(body.error);
+        if (!body.member) return;
+        setMemberName(body.member.displayName || "");
+        setMemberToken(body.memberToken);
+        setCoupons(body.coupons);
+        setClaimed(body.claimedCouponIds);
+      })
+      .catch((error: unknown) => setMessage(getErrorMessage(error)))
+      .finally(() => setMemberLookupDone(true));
+  }, [demoMode, idToken, tracking]);
+
   async function register(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!tracking) return;
@@ -137,6 +164,7 @@ export function MemberJourney({
     setMemberName(displayName);
     setMemberToken(body.memberToken);
     setCoupons(body.coupons);
+    setClaimed(body.claimedCouponIds);
   }
 
   async function claim(couponId: string) {
@@ -161,12 +189,13 @@ export function MemberJourney({
   if (!effectiveSource) return <ErrorScreen message="QR Code นี้ไม่มี source กรุณาสแกน QR Code ใหม่" />;
   if (loading) return message ? <ErrorScreen message={message} /> : <LoadingScreen />;
   if (!tracking) return <ErrorScreen message={message} />;
+  if (!memberLookupDone) return <LoadingScreen />;
   if (memberToken) {
     return (
       <main className="mx-auto min-h-screen max-w-lg bg-[#f4faf6] px-5 py-7">
         <header className="rounded-[2rem] bg-[#0d6b4d] p-6 text-white shadow-lg shadow-emerald-900/15">
           <BadgeCheck className="text-emerald-200" size={36} />
-          <p className="mt-5 text-sm text-emerald-100">สมัครสมาชิกสำเร็จ</p>
+          <p className="mt-5 text-sm text-emerald-100">สถานะสมาชิก</p>
           <h1 className="mt-1 text-3xl font-bold">สวัสดี {memberName}</h1>
           <p className="mt-3 text-sm leading-6 text-emerald-50">เลือกรับสิทธิ์พิเศษสำหรับสมาชิกใหม่ได้ทันที</p>
         </header>
@@ -211,9 +240,9 @@ export function MemberJourney({
         {demoMode && <p className="mb-4 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">Demo mode: ระบบจะจำลอง LINE user จากเบอร์โทรสำหรับการทดสอบ local</p>}
         <form className="space-y-4" onSubmit={register}>
           <Field defaultValue={liffProfile?.name} label="ชื่อ - นามสกุล" name="displayName" placeholder="กรอกชื่อของคุณ" required />
-          <Field label="เบอร์โทรศัพท์" name="phone" placeholder="08x-xxx-xxxx" required type="tel" />
-          <Field label="Email" name="email" placeholder="name@example.com" type="email" />
-          <Field label="วันเกิด" name="birthDate" type="date" />
+          <Field defaultValue={liffProfile?.phone_number} label="เบอร์โทรศัพท์" name="phone" placeholder="08x-xxx-xxxx" required type="tel" />
+          <Field defaultValue={liffProfile?.email} label="Email" name="email" placeholder="name@example.com" type="email" />
+          <Field defaultValue={liffProfile?.birthdate} label="วันเกิด" name="birthDate" type="date" />
           <label className="flex gap-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
             <input className="mt-1 accent-emerald-700" name="consent" required type="checkbox" />
             ยินยอมให้จัดเก็บข้อมูลเพื่อสมัครสมาชิก รับสิทธิ์ และรับข่าวสารจากแบรนด์

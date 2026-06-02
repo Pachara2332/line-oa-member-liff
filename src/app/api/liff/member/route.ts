@@ -6,46 +6,26 @@ import { createMemberToken, verifyScanToken } from "@/lib/tokens";
 
 const schema = z.object({
   scanToken: z.string(),
-  idToken: z.string().optional(),
-  demoLineUserId: z.string().optional(),
-  displayName: z.string().trim().min(1).max(100),
-  phone: z.string().trim().min(8).max(30),
-  email: z.email().optional().or(z.literal("")),
-  birthDate: z.string().optional(),
-  consent: z.literal(true),
+  idToken: z.string(),
 });
 
 export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: "กรุณากรอกข้อมูลให้ครบถ้วน" }, { status: 400 });
+    return NextResponse.json({ error: "ข้อมูลเข้าสู่ระบบไม่ครบถ้วน" }, { status: 400 });
   }
+
   try {
     const scan = await verifyScanToken(parsed.data.scanToken);
     const source = await prisma.qrSource.findUnique({ where: { id: scan.sourceId } });
     if (!source || !source.active) throw new Error("QR source not found");
-    const profile = await verifyLineIdToken(parsed.data.idToken, parsed.data.demoLineUserId);
-    const member = await prisma.member.upsert({
+
+    const profile = await verifyLineIdToken(parsed.data.idToken, undefined);
+    const member = await prisma.member.findUnique({
       where: { brandId_lineUserId: { brandId: source.brandId, lineUserId: profile.sub } },
-      update: {
-        sourceId: source.id,
-        displayName: parsed.data.displayName,
-        phone: parsed.data.phone,
-        email: parsed.data.email || null,
-        birthDate: parsed.data.birthDate ? new Date(parsed.data.birthDate) : null,
-        consentAt: new Date(),
-      },
-      create: {
-        brandId: source.brandId,
-        sourceId: source.id,
-        lineUserId: profile.sub,
-        displayName: parsed.data.displayName,
-        phone: parsed.data.phone,
-        email: parsed.data.email || null,
-        birthDate: parsed.data.birthDate ? new Date(parsed.data.birthDate) : null,
-        consentAt: new Date(),
-      },
     });
+    if (!member) return NextResponse.json({ member: null });
+
     const tag = await prisma.tag.upsert({
       where: { brandId_code: { brandId: source.brandId, code: `source:${source.code}` } },
       update: { sourceId: source.id, name: source.name },
@@ -64,13 +44,10 @@ export async function POST(request: Request) {
       prisma.memberTag.upsert({
         where: { memberId_tagId: { memberId: member.id, tagId: tag.id } },
         update: {},
-        create: { memberId: member.id, tagId: tag.id, reason: "LIFF_QR_REGISTRATION" },
-      }),
-      prisma.lineFollowEvent.updateMany({
-        where: { lineUserId: member.lineUserId, memberId: null },
-        data: { memberId: member.id, brandId: member.brandId },
+        create: { memberId: member.id, tagId: tag.id, reason: "LIFF_RETURN_VISIT" },
       }),
     ]);
+
     const coupons = await prisma.coupon.findMany({
       where: { brandId: source.brandId, active: true },
       select: { id: true, title: true, description: true },
@@ -80,14 +57,14 @@ export async function POST(request: Request) {
       where: { memberId: member.id },
       select: { couponId: true },
     });
+
     return NextResponse.json({
       member: { id: member.id, displayName: member.displayName },
       memberToken: await createMemberToken(member.id, member.brandId),
-      tags: [{ code: tag.code, name: tag.name }],
       coupons,
       claimedCouponIds: claims.map(({ couponId }) => couponId),
     });
   } catch {
-    return NextResponse.json({ error: "ไม่สามารถสมัครสมาชิกได้ กรุณาลองใหม่" }, { status: 400 });
+    return NextResponse.json({ error: "ไม่สามารถตรวจสอบสถานะสมาชิกได้ กรุณาลองใหม่" }, { status: 400 });
   }
 }
